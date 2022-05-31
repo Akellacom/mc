@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"net/http"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -73,6 +74,10 @@ var adminTraceFlags = []cli.Flag{
 	cli.BoolFlag{
 		Name:  "errors, e",
 		Usage: "trace only failed requests",
+	},
+	cli.StringFlag{
+		Name:  "save-log, s",
+		Usage: "save trace to a file",
 	},
 }
 
@@ -286,6 +291,9 @@ func mainAdminTrace(ctx *cli.Context) error {
 	opts, e := tracingOpts(ctx)
 	fatalIf(probe.NewError(e), "Unable to start tracing")
 
+	// Save log
+	saveLogPath := ctx.String("save-log")
+
 	// Start listening on all trace activity.
 	traceCh := client.ServiceTrace(ctxt, opts)
 	for traceInfo := range traceCh {
@@ -293,10 +301,29 @@ func mainAdminTrace(ctx *cli.Context) error {
 			fatalIf(probe.NewError(traceInfo.Err), "Unable to listen to http trace")
 		}
 		if matchTrace(ctx, traceInfo) {
-			printTrace(verbose, traceInfo)
+			// Save log
+			if saveLogPath != "" {
+				saveLog(saveLogPath, traceInfo)
+			} else {
+				printTrace(verbose, traceInfo)
+			}
 		}
 	}
 	return nil
+}
+
+// Saving trace to a file
+// -s=/tmp/minio-log.log
+func saveLog(path string, traceInfo madmin.ServiceTraceInfo) {
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0660)
+	if err != nil {
+		console.Println(err)
+		return
+	}
+
+	//defer file.Close()
+
+	fmt.Fprintf(file, "%s\n", shortTrace(traceInfo).String())
 }
 
 // Short trace record
